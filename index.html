@@ -145,7 +145,7 @@
       $("submitBtn").disabled = true;
       setStatus("Saving...", "info");
       try {
-        await api.call("submit", { name, picks });
+        await api.call("submit", { name, picks }, () => setStatus("Google's server is being slow. Still saving, hang tight...", "info"));
         setStatus("");
         $("doneTitle").textContent = `Thanks, ${name}`;
         $("doneChips").innerHTML = picks.map((p, i) => `<span class="chip"><span class="n">${i + 1}</span><b>${p}</b></span>`).join("");

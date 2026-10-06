@@ -22,13 +22,15 @@ function doGet() {
 }
 
 function doPost(e) {
-  let out;
+  let out, req;
   try {
-    const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     out = handle_(req);
   } catch (err) {
     out = { ok: false, error: String((err && err.message) || err) };
   }
+  // Echo the action so the page can tell a real reply from a stray one.
+  out.action = req && req.action;
   return json_(out);
 }
 

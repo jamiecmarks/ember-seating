@@ -190,7 +190,9 @@
 
     // ---------- auth ----------
     async function login(pw) {
-      const out = await api.call("admin", { password: pw });
+      const out = await api.call("admin", { password: pw }, () => {
+        $("loginStatus").textContent = "Google's server is being slow. Still loading..."; $("loginStatus").className = "status info";
+      });
       password = pw;
       try { sessionStorage.setItem(PW_KEY, pw); } catch {}
       data = { picks: out.picks || [], attendance: out.attendance || {} };
@@ -202,8 +204,8 @@
 
     $("loginView").onsubmit = async (e) => {
       e.preventDefault();
-      $("loginStatus").textContent = ""; $("loginStatus").className = "status";
-      try { await login($("pw").value); }
+      $("loginStatus").textContent = "Loading..."; $("loginStatus").className = "status info";
+      try { await login($("pw").value); $("loginStatus").textContent = ""; }
       catch (err) { $("loginStatus").textContent = err.message; $("loginStatus").className = "status error"; }
     };
     $("logoutBtn").onclick = () => { try { sessionStorage.removeItem(PW_KEY); } catch {} location.reload(); };
@@ -215,7 +217,7 @@
       const st = $("clearStatus");
       try {
         st.textContent = "Clearing..."; st.className = "status info";
-        await api.call("clear", { password });
+        await api.call("clear", { password }, () => { st.textContent = "Server is slow. Still clearing..."; });
         results = null; selected = null;
         $("allocResults").hidden = true;
         await login(password);
@@ -356,7 +358,7 @@
       try {
         const att = readAttendance();
         attStatus("Saving...", "info");
-        await api.call("saveAttendance", { password, attendance: att });
+        await api.call("saveAttendance", { password, attendance: att }, () => attStatus("Server is slow. Still saving...", "info"));
         data.attendance = att;
         attStatus("Saved.", "ok");
       } catch (e) { attStatus(e.message, "error"); }

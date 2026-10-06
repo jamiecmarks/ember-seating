@@ -4,23 +4,50 @@ window.SeatingAPI = (function () {
   // Add ?demo to the URL to try the app without touching the real data.
   const demo = !cfg.API_URL || new URLSearchParams(location.search).has("demo");
 
-  async function call(action, data = {}) {
-    if (demo) return mock(action, data);
-    let res;
+  // Apps Script web apps intermittently answer with a Google "unable to open the file" 404
+  // (or a 5xx) instead of the script's JSON. Every action here overwrites rather than appends,
+  // so it's safe to simply try again.
+  const ATTEMPTS = 4;
+  const TIMEOUT_MS = 45000;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function attempt(body) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {
       // text/plain avoids a CORS preflight, which Apps Script can't answer.
-      res = await fetch(cfg.API_URL, {
+      const res = await fetch(cfg.API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action, ...data }),
+        body,
+        signal: ctrl.signal,
       });
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return null; } // Google's HTML error page
     } catch {
-      throw new Error("Couldn't reach the seating server. Check your connection and try again.");
+      return null; // network error or timeout
+    } finally {
+      clearTimeout(timer);
     }
-    if (!res.ok) throw new Error(`Server error (${res.status}).`);
-    const out = await res.json();
-    if (!out.ok) throw new Error(out.error || "Something went wrong.");
-    return out;
+  }
+
+  // onRetry(n) is called before retry n so the page can say it's still trying.
+  async function call(action, data = {}, onRetry) {
+    if (demo) return mock(action, data);
+    const body = JSON.stringify({ action, ...data });
+    for (let i = 0; i < ATTEMPTS; i++) {
+      if (i > 0) {
+        if (onRetry) onRetry(i);
+        await sleep(800 * 2 ** (i - 1));
+      }
+      const out = await attempt(body);
+      // Ignore anything that isn't a reply to this action (e.g. Google's redirect
+      // occasionally serves doGet's output). Older scripts don't echo the action.
+      if (!out || (out.action ? out.action !== action : "message" in out)) continue;
+      if (!out.ok) throw new Error(out.error || "Something went wrong.");
+      return out;
+    }
+    throw new Error("The seating server isn't responding right now. Please try again in a minute.");
   }
 
   // ---------------- Demo mode (browser-only) ----------------
