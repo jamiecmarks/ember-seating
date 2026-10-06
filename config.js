@@ -4,7 +4,7 @@
 window.SEATING_CONFIG = {
   // Paste your Google Apps Script web app URL here (see README.md).
   // Leave empty for demo mode (data stays in your browser).
-  API_URL: "",
+  API_URL: "https://script.google.com/macros/s/AKfycbzEwKL_06DJ42aJzqYXaJZtIOTnEkdF4iIeAquptaVMdjj31FpoFFml0QKeAgnwzgkc/exec",
 
   OFFICE_NAME: "Melbourne",
 
@@ -27,7 +27,6 @@ window.SEATING_CONFIG = {
     "Conor",
     "Jamie",
     "Leslie",
-    "Oliver",
     "Pat",
     "Sam",
     "Talia",

@@ -1,7 +1,8 @@
 // Talks to the Google Apps Script backend, or a local demo store when no API_URL is set.
 window.SeatingAPI = (function () {
   const cfg = window.SEATING_CONFIG;
-  const demo = !cfg.API_URL;
+  // Add ?demo to the URL to try the app without touching the real data.
+  const demo = !cfg.API_URL || new URLSearchParams(location.search).has("demo");
 
   async function call(action, data = {}) {
     if (demo) return mock(action, data);

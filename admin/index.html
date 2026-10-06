@@ -117,8 +117,8 @@
                   <span><span class="rk r0">--</span>None free</span>
                 </div>
               </div>
+              <div class="stage" id="stage" aria-live="polite"></div>
               <div class="map" id="allocmap"></div>
-              <div class="caption" id="caption" aria-live="polite"></div>
             </div>
             <aside class="panel side table-wrap"><table id="resultTable"></table></aside>
           </div>
@@ -360,6 +360,18 @@
         const s = free.shift();
         if (s) { r.seat = s.id; r.rank = 0; taken[s.id] = r.name; }
       }
+
+      // Who beat whom: lower-priority people who also listed this desk lost it to r,
+      // and the owners of r's higher-ranked picks beat r to them.
+      const owner = Object.fromEntries(out.filter((r) => r.rank > 0).map((r) => [r.seat, r]));
+      for (const r of out) {
+        r.beat = r.rank > 0
+          ? out.filter((o) => o.order > r.order && o.picks.includes(r.seat))
+              .map((o) => ({ name: o.name, days: o.days, rank: o.picks.indexOf(r.seat) + 1 }))
+          : [];
+        const missed = r.rank > 0 ? r.picks.slice(0, r.rank - 1) : r.picks;
+        r.lostTo = missed.filter((id) => owner[id]).map((id) => ({ seat: id, name: owner[id].name, days: owner[id].days }));
+      }
       return out;
     }
 
@@ -368,7 +380,7 @@
       results = allocate(readAttendance());
       $("allocResults").hidden = false;
       renderResultTable();
-      if (animate) startReveal(); else { revealN = results.length; drawAlloc(); caption(null); }
+      if (animate) startReveal(); else { revealN = results.length; drawAlloc(); summary(); }
     }
 
     function drawAlloc(highlight) {
@@ -395,30 +407,74 @@
     }
 
     function renderResultTable() {
-      $("resultTable").innerHTML = `<thead><tr><th>#</th><th>Name</th><th class="num">Days</th><th>Desk</th></tr></thead>
+      $("resultTable").innerHTML = `<thead><tr><th>#</th><th>Name</th><th class="num">Days</th><th>Desk</th><th class="num">Beat</th></tr></thead>
         <tbody>${results.map((r) => `<tr><td class="muted mono">${r.order}</td><td>${esc(short(r.name))}</td><td class="num">${r.days}</td>
-          <td>${r.seat ? `<span class="mono" style="font-weight:600">${r.seat}</span> <span class="rk r${Math.min(r.rank, 3)}">${r.rank ? ORD[r.rank - 1] : "--"}</span>` : '<span class="muted">None</span>'}</td></tr>`).join("")}</tbody>`;
+          <td>${r.seat ? `<span class="mono" style="font-weight:600">${r.seat}</span> <span class="rk r${Math.min(r.rank, 3)}">${r.rank ? ORD[r.rank - 1] : "--"}</span>` : '<span class="muted">None</span>'}</td>
+          <td class="num ${r.beat.length ? "" : "muted"}">${r.beat.length}</td></tr>`).join("")}</tbody>`;
     }
 
-    function caption(r) {
-      if (!r) return ($("caption").innerHTML = "");
-      const res = !r.seat ? "No desks left" : r.rank ? `${ORD[r.rank - 1]} choice` : "Picks all taken";
-      $("caption").innerHTML = `<span class="pos">#${String(r.order).padStart(2, "0")}</span>
-        <span class="who-name">${esc(r.name)}</span><span class="days">${r.days} days</span>
-        <span class="arrow">&rarr;</span>${r.seat ? `<span class="desk">${r.seat}</span>` : ""}<span class="res">${res}</span>`;
+    const person = (p, cls, extra, delay) =>
+      `<span class="fighter ${cls}" ${delay != null ? `style="animation-delay:${delay}ms"` : ""}>
+        <b>${esc(p.name)}</b><span>${p.days}d${extra ? " · " + extra : ""}</span></span>`;
+
+    function headline(r) {
+      if (!r.seat) return "No desks left";
+      if (r.rank === 0) return "All their picks were taken";
+      if (r.rank === 1 && r.beat.length) return `Wins the fight for ${r.seat}`;
+      if (r.rank === 1) return "Unopposed";
+      return `Missed out on ${r.lostTo[0] ? r.lostTo[0].seat : "their 1st choice"}`;
+    }
+
+    // One step of the reveal: the person, their desk, who they beat and who beat them.
+    function showStep(r) {
+      const tie = (a, b) => (a.days === b.days ? "same days, picked earlier" : "");
+      const lost = r.lostTo.length
+        ? `<div class="stage-row"><span class="stage-label">Lost</span>${r.lostTo.map((l) =>
+            `<span class="lost"><span class="mono">${l.seat}</span> to ${person(l, "winner", tie(l, r))}</span>`).join("")}</div>`
+        : "";
+      const beat = r.beat.length
+        ? `<div class="stage-row"><span class="stage-label">Beat</span>${r.beat.map((b, i) =>
+            person(b, "loser", `had it ${ORD[b.rank - 1]}${tie(r, b) ? ", " + tie(r, b) : ""}`, 500 + i * 350)).join("")}</div>`
+        : "";
+      $("stage").innerHTML = `
+        <div class="stage-top"><span class="pos">#${String(r.order).padStart(2, "0")} of ${results.length}</span><span class="headline">${esc(headline(r))}</span></div>
+        <div class="stage-main">
+          <div><div class="stage-name">${esc(r.name)}</div><div class="stage-days">${r.days} ${esc(cfg.ATTENDANCE_LABEL.toLowerCase())}</div></div>
+          ${r.seat ? `<div class="stage-desk"><span class="desk-pill ${r.beat.length ? "hot" : ""}">${r.seat}</span>
+            <span class="stage-rank">${r.rank ? ORD[r.rank - 1] + " choice" : "assigned"}</span></div>` : ""}
+        </div>${lost}${beat}`;
+    }
+
+    function summary() {
+      if (!results || !results.length) return ($("stage").innerHTML = "");
+      const fights = results.filter((r) => r.beat.length).sort((a, b) => b.beat.length - a.beat.length).slice(0, 3);
+      const firsts = results.filter((r) => r.rank === 1).length;
+      const unlucky = [...results].sort((a, b) => b.lostTo.length - a.lostTo.length)[0];
+      $("stage").innerHTML = `
+        <div class="stage-top"><span class="pos">Final</span><span class="headline">${firsts} of ${results.length} got their 1st choice</span></div>
+        <div class="stage-grid">
+          <div><span class="stage-label">Biggest showdowns</span>${fights.length
+            ? fights.map((r) => `<div class="stage-line"><span class="desk-pill sm hot">${r.seat}</span><b>${esc(r.name)}</b> beat ${r.beat.map((b) => esc(b.name)).join(", ")}</div>`).join("")
+            : `<div class="stage-line">No clashes at all.</div>`}</div>
+          <div><span class="stage-label">Toughest luck</span>${unlucky && unlucky.lostTo.length
+            ? `<div class="stage-line"><b>${esc(unlucky.name)}</b> lost ${unlucky.lostTo.map((l) => `<span class="mono">${l.seat}</span> to ${esc(l.name)}`).join(", ")}</div>`
+            : `<div class="stage-line">Nobody missed out.</div>`}</div>
+        </div>`;
     }
 
     function startReveal() {
-      revealN = 0; drawAlloc(); caption(null);
+      revealN = 0; drawAlloc();
+      $("stage").innerHTML = `<div class="stage-top"><span class="pos">Ready</span><span class="headline">Most days in the office goes first</span></div>`;
       $("revealBtn").textContent = "Pause";
       const step = () => {
-        if (revealN >= results.length) return stopReveal();
+        if (revealN >= results.length) { stopReveal(); summary(); return; }
         revealN++;
         const r = results[revealN - 1];
-        drawAlloc(r.seat); caption(r);
-        revealTimer = setTimeout(step, 1800);
+        drawAlloc(r.seat); showStep(r);
+        // Linger on the contested ones.
+        revealTimer = setTimeout(step, 2200 + r.beat.length * 450 + r.lostTo.length * 400);
       };
-      revealTimer = setTimeout(step, 400);
+      revealTimer = setTimeout(step, 1200);
     }
     function stopReveal() {
       clearTimeout(revealTimer); revealTimer = null;
@@ -435,7 +491,7 @@
       if (revealTimer) return stopReveal();
       results = allocate(readAttendance()); renderResultTable(); startReveal();
     };
-    $("showAllBtn").onclick = () => { stopReveal(); revealN = results.length; drawAlloc(); caption(null); stopReveal(); };
+    $("showAllBtn").onclick = () => { stopReveal(); revealN = results.length; drawAlloc(); summary(); stopReveal(); };
 
     let saved = null;
     try { saved = sessionStorage.getItem(PW_KEY); } catch {}
