@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seating · Ember</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-in">
+      <a class="logo" href="./"><span class="logo-mark" aria-hidden="true"></span>Ember</a>
+      <span class="crumb-sep">/</span>
+      <span class="crumb">Seating</span>
+      <span class="grow"></span>
+      <span class="nav-meta" id="office"></span>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="notice" id="demoBanner" hidden>
+      <span class="dot"></span>Demo mode. Picks are stored in this browser only.
+    </div>
+
+    <section class="hero">
+      <h1>Pick your desk.</h1>
+      <p>Rank your top three. Only the admin sees your picks. If two people want the same desk, whoever's in the office more gets it.</p>
+    </section>
+
+    <div class="split" id="pickerView">
+      <section class="panel">
+        <div class="panel-head">
+          <span class="label">Floor plan</span>
+          <div class="legend">
+            <span><i class="sw"></i>Seated</span>
+            <span><i class="sw dashed"></i>Standing</span>
+            <span><i class="sw solid"></i>Your pick</span>
+          </div>
+        </div>
+        <div class="map" id="map"></div>
+      </section>
+
+      <aside class="side">
+        <div class="field">
+          <label class="label" for="name">Name</label>
+          <select id="name"><option value="">Select your name</option></select>
+        </div>
+        <div class="field">
+          <div class="field-row"><span class="label">Your picks</span><span class="count" id="count"></span></div>
+          <ol class="picks" id="picks"></ol>
+        </div>
+        <div class="field">
+          <button class="btn btn-primary btn-block" id="submitBtn" type="button">Submit</button>
+          <div class="status" id="status" role="status" aria-live="polite"></div>
+          <p class="note">You can submit again later. Your newest picks replace the old ones.</p>
+        </div>
+      </aside>
+    </div>
+
+    <section class="done" id="doneView" hidden>
+      <div class="check" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 10.5l3.2 3L15 7"/></svg></div>
+      <h2 id="doneTitle">Saved</h2>
+      <div class="chips" id="doneChips"></div>
+      <p>Your picks are private. Results come out once everyone's in.</p>
+      <button class="btn btn-secondary" id="editBtn" type="button">Edit picks</button>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="office.js"></script>
+  <script src="api.js"></script>
+  <script>
+  (function () {
+    const cfg = window.SEATING_CONFIG, O = window.Office, api = window.SeatingAPI;
+    const MAX = cfg.MAX_PICKS;
+    const $ = (id) => document.getElementById(id);
+    const ICON = {
+      up: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg>',
+      down: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M4 9l4 4 4-4"/></svg>',
+      x: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+    };
+    let picks = [];
+
+    $("office").textContent = cfg.OFFICE_NAME + " office";
+    $("demoBanner").hidden = !api.demo;
+    [...cfg.STAFF].sort((a, b) => a.localeCompare(b)).forEach((n) => $("name").add(new Option(n, n)));
+
+    function setStatus(msg, kind) {
+      $("status").textContent = msg || "";
+      $("status").className = "status " + (kind || "");
+    }
+
+    function draw() {
+      O.render($("map"), {
+        fill: (s) => (picks.includes(s.id) ? { cls: "picked" } : null),
+        badge: (s) => (picks.includes(s.id) ? picks.indexOf(s.id) + 1 : null),
+        aria: (s) => `Desk ${s.id}, ${O.tagText(s)}${picks.includes(s.id) ? `, choice ${picks.indexOf(s.id) + 1}` : ""}`,
+        onSeat: toggle,
+      });
+
+      $("count").textContent = `${picks.length}/${MAX}`;
+      let html = "";
+      for (let i = 0; i < MAX; i++) {
+        const id = picks[i];
+        if (!id) {
+          html += `<li class="empty"><span class="num">${i + 1}</span><span class="meta">Click a desk on the plan</span></li>`;
+          continue;
+        }
+        html += `<li><span class="num">${i + 1}</span><span class="code">${id}</span>
+          <span class="meta">${O.esc(O.tagText(O.seatById(id)))}</span>
+          <button class="icon-btn" data-act="up" data-i="${i}" aria-label="Move up" ${i === 0 ? "disabled" : ""}>${ICON.up}</button>
+          <button class="icon-btn" data-act="down" data-i="${i}" aria-label="Move down" ${i === picks.length - 1 ? "disabled" : ""}>${ICON.down}</button>
+          <button class="icon-btn" data-act="del" data-i="${i}" aria-label="Remove">${ICON.x}</button></li>`;
+      }
+      $("picks").innerHTML = html;
+    }
+
+    function toggle(id) {
+      setStatus("");
+      if (picks.includes(id)) picks = picks.filter((p) => p !== id);
+      else if (picks.length >= MAX) return setStatus(`That's ${MAX} already. Remove one first.`, "info");
+      else picks.push(id);
+      draw();
+    }
+
+    $("picks").onclick = (e) => {
+      const b = e.target.closest("button[data-act]");
+      if (!b) return;
+      const i = +b.dataset.i;
+      if (b.dataset.act === "del") picks.splice(i, 1);
+      else {
+        const j = b.dataset.act === "up" ? i - 1 : i + 1;
+        [picks[i], picks[j]] = [picks[j], picks[i]];
+      }
+      draw();
+    };
+
+    $("submitBtn").onclick = async () => {
+      const name = $("name").value;
+      if (!name) return setStatus("Select your name first.", "error");
+      if (!picks.length) return setStatus("Pick at least one desk.", "error");
+      $("submitBtn").disabled = true;
+      setStatus("Saving...", "info");
+      try {
+        await api.call("submit", { name, picks });
+        setStatus("");
+        $("doneTitle").textContent = `Thanks, ${name}`;
+        $("doneChips").innerHTML = picks.map((p, i) => `<span class="chip"><span class="n">${i + 1}</span><b>${p}</b></span>`).join("");
+        $("pickerView").hidden = true;
+        $("doneView").hidden = false;
+        window.scrollTo({ top: 0 });
+      } catch (e) {
+        setStatus(e.message, "error");
+      } finally {
+        $("submitBtn").disabled = false;
+      }
+    };
+
+    $("editBtn").onclick = () => { $("doneView").hidden = true; $("pickerView").hidden = false; };
+
+    draw();
+  })();
+  </script>
+</body>
+</html>

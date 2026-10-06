@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin · Ember Seating</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-in">
+      <a class="logo" href="../"><span class="logo-mark" aria-hidden="true"></span>Ember</a>
+      <span class="crumb-sep">/</span>
+      <span class="crumb">Seating</span>
+      <span class="crumb-sep">/</span>
+      <span class="crumb">Admin</span>
+      <span class="grow"></span>
+      <button class="btn btn-secondary btn-sm" id="refreshBtn" hidden>Refresh</button>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="notice" id="demoBanner" hidden>
+      <span class="dot"></span>Demo mode. Password is <code>admin</code>. Data lives in this browser only.
+      <span class="actions">
+        <button class="btn btn-secondary btn-sm" id="seedBtn">Load sample data</button>
+        <button class="btn btn-secondary btn-sm" id="resetBtn">Clear</button>
+      </span>
+    </div>
+
+    <form class="login" id="loginView">
+      <h1>Admin</h1>
+      <p>Enter the admin password to see results.</p>
+      <input type="password" id="pw" placeholder="Password" autocomplete="current-password" aria-label="Password">
+      <button class="btn btn-primary btn-block" type="submit">Continue</button>
+      <div class="status" id="loginStatus" role="status"></div>
+    </form>
+
+    <div id="appView" hidden>
+      <div class="metrics" id="stats"></div>
+
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="heat" aria-selected="true">Overview</button>
+        <button role="tab" data-tab="alloc" aria-selected="false">Allocation</button>
+      </nav>
+
+      <!-- OVERVIEW -->
+      <section id="tab-heat">
+        <div class="split">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="seg" id="modeSeg">
+                <button data-mode="weighted" aria-pressed="true">Weighted</button>
+                <button data-mode="first" aria-pressed="false">First choice</button>
+                <button data-mode="any" aria-pressed="false">Any pick</button>
+              </div>
+              <div class="scale"><span>Low</span><span class="bar"></span><span>High</span></div>
+            </div>
+            <div class="map" id="heatmap"></div>
+            <div class="panel-foot" id="modeHint"></div>
+          </div>
+          <aside class="panel side" id="detail"></aside>
+        </div>
+
+        <div class="cols section">
+          <div>
+            <div class="section-head"><h2>Most wanted</h2></div>
+            <div class="bars" id="contested"></div>
+          </div>
+          <div>
+            <div class="section-head"><h2>Not submitted</h2></div>
+            <div class="chips" id="missing" style="justify-content:flex-start"></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head"><h2>Submissions</h2></div>
+          <div class="panel table-wrap"><table id="subs"></table></div>
+        </div>
+      </section>
+
+      <!-- ALLOCATION -->
+      <section id="tab-alloc" hidden>
+        <div class="section-head">
+          <div>
+            <h2>Attendance</h2>
+            <p>Higher number picks first. Each person gets their highest-ranked desk still free. If all three are gone, they get the least popular desk left. Ties go to whoever submitted first.</p>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="saveAttBtn">Save</button>
+            <button class="btn btn-primary" id="runBtn">Run allocation</button>
+          </div>
+        </div>
+        <div class="status" id="attStatus" role="status" style="margin-bottom:12px"></div>
+        <div class="panel table-wrap"><table id="attTable"></table></div>
+
+        <div class="section" id="allocResults" hidden>
+          <div class="section-head">
+            <h2>Seating plan</h2>
+            <div class="btn-row">
+              <button class="btn btn-primary btn-sm" id="revealBtn">Start reveal</button>
+              <button class="btn btn-secondary btn-sm" id="showAllBtn">Show all</button>
+            </div>
+          </div>
+          <div class="split">
+            <div class="panel">
+              <div class="panel-head">
+                <div class="legend">
+                  <span><span class="rk r1">1st</span>First choice</span>
+                  <span><span class="rk r2">2nd</span>Second</span>
+                  <span><span class="rk r3">3rd</span>Third</span>
+                  <span><span class="rk r0">--</span>None free</span>
+                </div>
+              </div>
+              <div class="map" id="allocmap"></div>
+              <div class="caption" id="caption" aria-live="polite"></div>
+            </div>
+            <aside class="panel side table-wrap"><table id="resultTable"></table></aside>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../config.js"></script>
+  <script src="../office.js"></script>
+  <script src="../api.js"></script>
+  <script>
+  (function () {
+    const cfg = window.SEATING_CONFIG, O = window.Office, api = window.SeatingAPI, esc = O.esc;
+    const MAX = cfg.MAX_PICKS;
+    const ORD = ["1st", "2nd", "3rd", "4th", "5th"];
+    const $ = (id) => document.getElementById(id);
+    const PW_KEY = "ember-seating-admin";
+
+    let password = "";
+    let data = { picks: [], attendance: {} };
+    let mode = "weighted";
+    let selected = null;
+    let results = null, revealN = 0, revealTimer = null;
+
+    $("demoBanner").hidden = !api.demo;
+
+    // ---------- helpers ----------
+    // Names are already short (first names, plus surname only where two people share one).
+    const first = (n) => n;
+    const short = (n) => n;
+    function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+    const STOPS = ["#fff7ed", "#fdba74", "#f97316", "#c2410c", "#7c2d12"].map(hexToRgb);
+    function heat(t) {
+      const x = Math.min(1, Math.max(0, t)) * (STOPS.length - 1);
+      const i = Math.min(STOPS.length - 2, Math.floor(x)), f = x - i;
+      const c = STOPS[i].map((v, k) => Math.round(v + (STOPS[i + 1][k] - v) * f));
+      return `rgb(${c.join(",")})`;
+    }
+    function fmtDate(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" }) + ", " +
+        d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+    }
+
+    function seatStats(m = mode) {
+      const st = Object.fromEntries(O.SEATS.map((s) => [s.id, { score: 0, people: [] }]));
+      for (const p of data.picks) {
+        p.picks.forEach((id, r) => {
+          if (!st[id]) return;
+          st[id].people.push({ name: p.name, rank: r + 1 });
+          st[id].score += m === "weighted" ? MAX - r : m === "first" ? (r === 0 ? 1 : 0) : 1;
+        });
+      }
+      Object.values(st).forEach((v) => v.people.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name)));
+      return st;
+    }
+
+    // ---------- auth ----------
+    async function login(pw) {
+      const out = await api.call("admin", { password: pw });
+      password = pw;
+      try { sessionStorage.setItem(PW_KEY, pw); } catch {}
+      data = { picks: out.picks || [], attendance: out.attendance || {} };
+      $("loginView").hidden = true;
+      $("appView").hidden = false;
+      $("refreshBtn").hidden = $("logoutBtn").hidden = false;
+      renderAll();
+    }
+
+    $("loginView").onsubmit = async (e) => {
+      e.preventDefault();
+      $("loginStatus").textContent = ""; $("loginStatus").className = "status";
+      try { await login($("pw").value); }
+      catch (err) { $("loginStatus").textContent = err.message; $("loginStatus").className = "status error"; }
+    };
+    $("logoutBtn").onclick = () => { try { sessionStorage.removeItem(PW_KEY); } catch {} location.reload(); };
+    $("refreshBtn").onclick = () => login(password).catch((e) => alert(e.message));
+    $("seedBtn").onclick = async () => { await api.call("demoSeed"); results = null; if (password) login(password); else $("pw").value = "admin"; };
+    $("resetBtn").onclick = async () => { await api.call("demoReset"); results = null; $("allocResults").hidden = true; if (password) login(password); };
+
+    // ---------- tabs ----------
+    document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
+      document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
+      $("tab-heat").hidden = b.dataset.tab !== "heat";
+      $("tab-alloc").hidden = b.dataset.tab !== "alloc";
+    }));
+    $("modeSeg").onclick = (e) => {
+      const b = e.target.closest("button[data-mode]");
+      if (!b) return;
+      mode = b.dataset.mode;
+      $("modeSeg").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+      renderHeat();
+    };
+
+    function renderAll() {
+      renderStats();
+      renderHeat();
+      renderTables();
+      renderAttendance();
+      if (results) runAllocation(false);
+    }
+
+    // ---------- metrics ----------
+    function renderStats() {
+      const st = seatStats("weighted");
+      const ranked = Object.entries(st).sort((a, b) => b[1].score - a[1].score);
+      const top = ranked[0];
+      const firsts = {};
+      data.picks.forEach((p) => p.picks[0] && (firsts[p.picks[0]] = (firsts[p.picks[0]] || 0) + 1));
+      const clash = Object.entries(firsts).sort((a, b) => b[1] - a[1])[0];
+      const unwanted = ranked.filter(([, v]) => !v.people.length).length;
+      const m = (k, v, s) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+      $("stats").innerHTML =
+        m("Submitted", `${data.picks.length}<small> / ${cfg.STAFF.length}</small>`, `${Math.round((data.picks.length / Math.max(1, cfg.STAFF.length)) * 100)}% of the team`) +
+        m("Most wanted", top && top[1].score ? `<span class="mono">${top[0]}</span>` : "--", top && top[1].score ? `${top[1].people.length} people` : "No picks yet") +
+        m("Top first-choice clash", clash && clash[1] > 1 ? `<span class="mono">${clash[0]}</span>` : "--", clash && clash[1] > 1 ? `${clash[1]} want it first` : "None yet") +
+        m("Unpicked desks", unwanted, `of ${O.SEATS.length}`);
+    }
+
+    // ---------- heatmap ----------
+    function renderHeat() {
+      const st = seatStats();
+      const max = Math.max(1, ...Object.values(st).map((v) => v.score));
+      if (!selected) {
+        const top = Object.entries(st).sort((a, b) => b[1].score - a[1].score)[0];
+        selected = top && top[1].score ? top[0] : O.SEATS[0].id;
+      }
+      $("modeHint").textContent = {
+        weighted: `Weighted by rank: first choice ${MAX} pts, second ${MAX - 1}, third ${MAX - 2}.`,
+        first: "First choices only.",
+        any: "Every pick counts once.",
+      }[mode];
+
+      const relevant = (v) => v.people.filter((p) => mode !== "first" || p.rank === 1);
+
+      O.render($("heatmap"), {
+        selected,
+        fill: (s) => {
+          const v = st[s.id];
+          if (!v.score) return null;
+          const t = v.score / max;
+          return { bg: heat(0.08 + t * 0.92), fg: t > 0.45 ? "#ffffff" : "#0a0a0a" };
+        },
+        sub: (s) => {
+          const ppl = relevant(st[s.id]);
+          if (!ppl.length) return "";
+          let txt = "", i = 0;
+          for (; i < ppl.length; i++) {
+            const next = (txt ? txt + ", " : "") + first(ppl[i].name);
+            if (next.length > 22) break;
+            txt = next;
+          }
+          return i < ppl.length ? `${txt} +${ppl.length - i}` : txt;
+        },
+        badge: (s) => relevant(st[s.id]).length || null,
+        aria: (s) => `Desk ${s.id}, wanted by ${st[s.id].people.length} people`,
+        onSeat: (id) => { selected = id; renderHeat(); },
+      });
+
+      const seat = O.seatById(selected), v = st[selected];
+      $("detail").innerHTML = `
+        <div class="panel-head"><span class="eyebrow">Desk</span><span class="count">${v.people.length} ${v.people.length === 1 ? "person" : "people"}</span></div>
+        <div class="panel-body" style="display:grid;gap:16px">
+          <div class="detail-id">${selected}</div>
+          <div class="tags">${(seat.tags.length ? seat.tags : ["Desk"]).map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>
+          ${v.people.length
+            ? `<ul class="who">${v.people.map((p) => `<li><span class="rk r${Math.min(p.rank, 3)}">${ORD[p.rank - 1]}</span>${esc(p.name)}</li>`).join("")}</ul>`
+            : `<p class="empty-state">No one has picked this desk.</p>`}
+        </div>
+        <div class="panel-foot">Click a desk to see who picked it.</div>`;
+
+      const ranked = Object.entries(st).filter(([, x]) => x.score).sort((a, b) => b[1].score - a[1].score).slice(0, 8);
+      $("contested").innerHTML = ranked.length
+        ? ranked.map(([id, x]) => `<div class="bar-row" data-id="${id}"><span class="id">${id}</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${(x.score / max) * 100}%;background:${heat(0.2 + (x.score / max) * 0.8)}"></div></div>
+            <span class="n">${x.people.length} ${x.people.length === 1 ? "pick" : "picks"}</span></div>`).join("")
+        : `<p class="empty-state">No picks yet.</p>`;
+      $("contested").onclick = (e) => { const r = e.target.closest(".bar-row"); if (r) { selected = r.dataset.id; renderHeat(); window.scrollTo({ top: 0, behavior: "smooth" }); } };
+    }
+
+    // ---------- tables ----------
+    function renderTables() {
+      const submitted = new Set(data.picks.map((p) => p.name.toLowerCase()));
+      const missing = cfg.STAFF.filter((n) => !submitted.has(n.toLowerCase()));
+      $("missing").innerHTML = missing.length
+        ? missing.map((n) => `<span class="chip">${esc(n)}</span>`).join("")
+        : `<p class="empty-state">Everyone has submitted.</p>`;
+
+      const rows = [...data.picks].sort((a, b) => a.name.localeCompare(b.name));
+      $("subs").innerHTML = `<thead><tr><th>Name</th>${Array.from({ length: MAX }, (_, i) => `<th>${ORD[i]}</th>`).join("")}<th class="num">Updated</th></tr></thead>
+        <tbody>${rows.map((p) => `<tr><td>${esc(p.name)}</td>${Array.from({ length: MAX }, (_, i) => `<td class="code">${esc(p.picks[i] || "")}</td>`).join("")}<td class="num muted">${fmtDate(p.updatedAt)}</td></tr>`).join("")
+        || `<tr><td colspan="${MAX + 2}" class="muted">No submissions yet.</td></tr>`}</tbody>`;
+    }
+
+    // ---------- attendance ----------
+    function renderAttendance() {
+      const rows = [...data.picks].sort((a, b) => a.name.localeCompare(b.name));
+      $("attTable").innerHTML = `<thead><tr><th>Name</th><th>Picks</th><th class="num">${esc(cfg.ATTENDANCE_LABEL)}</th></tr></thead>
+        <tbody>${rows.map((p) => `<tr><td>${esc(p.name)}</td><td class="muted mono">${esc(p.picks.join("  "))}</td>
+          <td class="num"><input type="number" min="0" step="1" data-name="${esc(p.name)}" value="${data.attendance[p.name] ?? ""}" aria-label="${esc(cfg.ATTENDANCE_LABEL)} for ${esc(p.name)}"></td></tr>`).join("")
+        || `<tr><td colspan="3" class="muted">No submissions yet.</td></tr>`}</tbody>`;
+    }
+    function readAttendance() {
+      const att = {};
+      $("attTable").querySelectorAll("input[data-name]").forEach((i) => { if (i.value !== "") att[i.dataset.name] = Number(i.value); });
+      return att;
+    }
+    function attStatus(msg, kind) { $("attStatus").textContent = msg; $("attStatus").className = "status " + (kind || ""); }
+
+    $("saveAttBtn").onclick = async () => {
+      try {
+        const att = readAttendance();
+        attStatus("Saving...", "info");
+        await api.call("saveAttendance", { password, attendance: att });
+        data.attendance = att;
+        attStatus("Saved.", "ok");
+      } catch (e) { attStatus(e.message, "error"); }
+    };
+
+    // ---------- allocation ----------
+    function allocate(att) {
+      const people = [...data.picks].sort((a, b) =>
+        (att[b.name] || 0) - (att[a.name] || 0) || new Date(a.updatedAt) - new Date(b.updatedAt));
+      const taken = {};
+      const out = people.map((p, i) => ({ order: i + 1, name: p.name, days: att[p.name] || 0, picks: p.picks, seat: null, rank: null }));
+
+      // Pass 1: preferences, in priority order.
+      for (const r of out) {
+        const idx = r.picks.findIndex((id) => O.seatById(id) && !taken[id]);
+        if (idx >= 0) { r.seat = r.picks[idx]; r.rank = idx + 1; taken[r.seat] = r.name; }
+      }
+      // Pass 2: anyone left gets the least-wanted free desk.
+      const st = seatStats("weighted");
+      const free = O.SEATS.filter((s) => !taken[s.id]).sort((a, b) => st[a.id].score - st[b.id].score);
+      for (const r of out) {
+        if (r.seat) continue;
+        const s = free.shift();
+        if (s) { r.seat = s.id; r.rank = 0; taken[s.id] = r.name; }
+      }
+      return out;
+    }
+
+    function runAllocation(animate) {
+      stopReveal();
+      results = allocate(readAttendance());
+      $("allocResults").hidden = false;
+      renderResultTable();
+      if (animate) startReveal(); else { revealN = results.length; drawAlloc(); caption(null); }
+    }
+
+    function drawAlloc(highlight) {
+      const shown = results.slice(0, revealN);
+      const bySeat = Object.fromEntries(shown.filter((r) => r.seat).map((r) => [r.seat, r]));
+      const fills = { 1: ["#0a0a0a", "#ffffff"], 2: ["#525252", "#ffffff"], 3: ["#e5e5e5", "#0a0a0a"], 0: ["#fef2f2", "#dc2626"] };
+      const finished = revealN >= results.length;
+      O.render($("allocmap"), {
+        selected: highlight,
+        fill: (s) => {
+          const r = bySeat[s.id];
+          if (!r) return null;
+          const [bg, fg] = fills[Math.min(r.rank, 3)];
+          return { bg, fg, cls: s.id === highlight ? "pop" : "" };
+        },
+        label: (s) => (bySeat[s.id] ? short(bySeat[s.id].name) : s.id),
+        sub: (s) => {
+          const r = bySeat[s.id];
+          if (!r) return finished ? "Empty" : "";
+          return `${s.id}  ·  ${r.rank ? ORD[r.rank - 1] + " choice" : "assigned"}`;
+        },
+        aria: (s) => (bySeat[s.id] ? `Desk ${s.id}: ${bySeat[s.id].name}` : `Desk ${s.id}: empty`),
+      });
+    }
+
+    function renderResultTable() {
+      $("resultTable").innerHTML = `<thead><tr><th>#</th><th>Name</th><th class="num">Days</th><th>Desk</th></tr></thead>
+        <tbody>${results.map((r) => `<tr><td class="muted mono">${r.order}</td><td>${esc(short(r.name))}</td><td class="num">${r.days}</td>
+          <td>${r.seat ? `<span class="mono" style="font-weight:600">${r.seat}</span> <span class="rk r${Math.min(r.rank, 3)}">${r.rank ? ORD[r.rank - 1] : "--"}</span>` : '<span class="muted">None</span>'}</td></tr>`).join("")}</tbody>`;
+    }
+
+    function caption(r) {
+      if (!r) return ($("caption").innerHTML = "");
+      const res = !r.seat ? "No desks left" : r.rank ? `${ORD[r.rank - 1]} choice` : "Picks all taken";
+      $("caption").innerHTML = `<span class="pos">#${String(r.order).padStart(2, "0")}</span>
+        <span class="who-name">${esc(r.name)}</span><span class="days">${r.days} days</span>
+        <span class="arrow">&rarr;</span>${r.seat ? `<span class="desk">${r.seat}</span>` : ""}<span class="res">${res}</span>`;
+    }
+
+    function startReveal() {
+      revealN = 0; drawAlloc(); caption(null);
+      $("revealBtn").textContent = "Pause";
+      const step = () => {
+        if (revealN >= results.length) return stopReveal();
+        revealN++;
+        const r = results[revealN - 1];
+        drawAlloc(r.seat); caption(r);
+        revealTimer = setTimeout(step, 1800);
+      };
+      revealTimer = setTimeout(step, 400);
+    }
+    function stopReveal() {
+      clearTimeout(revealTimer); revealTimer = null;
+      $("revealBtn").textContent = !results || revealN >= results.length ? "Start reveal" : "Restart reveal";
+    }
+
+    $("runBtn").onclick = () => {
+      if (!data.picks.length) return attStatus("No submissions yet.", "error");
+      attStatus("");
+      runAllocation(false);
+      $("allocResults").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    $("revealBtn").onclick = () => {
+      if (revealTimer) return stopReveal();
+      results = allocate(readAttendance()); renderResultTable(); startReveal();
+    };
+    $("showAllBtn").onclick = () => { stopReveal(); revealN = results.length; drawAlloc(); caption(null); stopReveal(); };
+
+    let saved = null;
+    try { saved = sessionStorage.getItem(PW_KEY); } catch {}
+    if (saved) login(saved).catch(() => {});
+  })();
+  </script>
+</body>
+</html>
