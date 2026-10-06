@@ -78,7 +78,8 @@ window.SeatingAPI = (function () {
         save(fresh);
         return { ok: true };
       }
-      case "demoReset":
+      case "clear":
+        adminCheck(d);
         save({ picks: {}, attendance: {} });
         return { ok: true };
       default:

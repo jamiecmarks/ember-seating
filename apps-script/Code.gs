@@ -37,6 +37,7 @@ function handle_(req) {
     case 'submit': return submit_(req);
     case 'admin': return admin_(req);
     case 'saveAttendance': return saveAttendance_(req);
+    case 'clear': return clear_(req);
     default: throw new Error('Unknown action.');
   }
 }
@@ -94,6 +95,20 @@ function saveAttendance_(req) {
     const sh = sheet_(ATT_SHEET, ATT_HEADERS);
     if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 2).clearContent();
     if (rows.length) sh.getRange(2, 1, rows.length, 2).setValues(rows);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
+function clear_(req) {
+  checkAdmin_(req.password);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    [sheet_(PICKS_SHEET, PICKS_HEADERS), sheet_(ATT_SHEET, ATT_HEADERS)].forEach(function (sh) {
+      if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+    });
   } finally {
     lock.releaseLock();
   }

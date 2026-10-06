@@ -29,7 +29,6 @@
       <span class="dot"></span>Demo mode. Password is <code>admin</code>. Data lives in this browser only.
       <span class="actions">
         <button class="btn btn-secondary btn-sm" id="seedBtn">Load sample data</button>
-        <button class="btn btn-secondary btn-sm" id="resetBtn">Clear</button>
       </span>
     </div>
 
@@ -81,6 +80,17 @@
         <div class="section">
           <div class="section-head"><h2>Submissions</h2></div>
           <div class="panel table-wrap"><table id="subs"></table></div>
+        </div>
+
+        <div class="section">
+          <div class="panel danger-zone">
+            <div>
+              <div class="label">Clear all results</div>
+              <p class="note">Deletes every submission and attendance number so you can start a fresh round. This can't be undone.</p>
+            </div>
+            <button class="btn btn-danger" id="clearBtn">Clear results</button>
+          </div>
+          <div class="status" id="clearStatus" role="status" style="margin-top:8px"></div>
         </div>
       </section>
 
@@ -199,7 +209,19 @@
     $("logoutBtn").onclick = () => { try { sessionStorage.removeItem(PW_KEY); } catch {} location.reload(); };
     $("refreshBtn").onclick = () => login(password).catch((e) => alert(e.message));
     $("seedBtn").onclick = async () => { await api.call("demoSeed"); results = null; if (password) login(password); else $("pw").value = "admin"; };
-    $("resetBtn").onclick = async () => { await api.call("demoReset"); results = null; $("allocResults").hidden = true; if (password) login(password); };
+    $("clearBtn").onclick = async () => {
+      const n = data.picks.length;
+      if (!confirm(`Delete all ${n} submission${n === 1 ? "" : "s"} and attendance numbers? This can't be undone.`)) return;
+      const st = $("clearStatus");
+      try {
+        st.textContent = "Clearing..."; st.className = "status info";
+        await api.call("clear", { password });
+        results = null; selected = null;
+        $("allocResults").hidden = true;
+        await login(password);
+        st.textContent = "All results cleared."; st.className = "status ok";
+      } catch (e) { st.textContent = e.message; st.className = "status error"; }
+    };
 
     // ---------- tabs ----------
     document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {

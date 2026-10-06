@@ -164,6 +164,10 @@ select:focus, input:focus { outline: none; border-color: var(--fg); box-shadow: 
 .btn-primary:hover { background: #2a2a2a; }
 .btn-secondary { background: var(--bg); border-color: var(--border-2); color: var(--fg); }
 .btn-secondary:hover { background: var(--bg-2); border-color: var(--muted-2); }
+.btn-danger { background: var(--bg); border-color: #fecaca; color: var(--danger); }
+.btn-danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+.danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-color: #fecaca; flex-wrap: wrap; }
+.danger-zone .note { margin-top: 2px; }
 .btn-sm { height: 32px; padding: 0 12px; font-size: 13px; }
 .btn-block { width: 100%; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
