@@ -1,40 +1,38 @@
 # Ember Melbourne Seat Picker
 
-A static seat-picking app for GitHub Pages, backed by a Google Sheet.
+Live at https://jamiecmarks.github.io/ember-seating/
 
-- **`/`**: staff pick their name and up to 3 desks, ranked. Nobody can see anyone else's picks.
-- **`/admin/`**: password-protected. Shows a heatmap of contested desks and who wants each one, lets you enter attendance, and runs the allocation with a one-by-one reveal.
+- **`/`**: staff pick their name and rank up to 3 desks. Nobody can see anyone else's picks.
+- **`/admin/`**: password-protected. Heatmap of contested desks, attendance entry, the allocation with a showdown-style reveal, CSV download and "Clear results".
 
-Until `API_URL` is set in `config.js`, the app runs in **demo mode**. In demo mode data stays in your browser and the admin password is `admin`.
+Add `?demo` to either URL to try it with fake data stored only in your browser (admin password `admin`).
 
-## 1. Set up the backend (Google Sheet + Apps Script, ~5 min)
+## How it's built
 
-1. Create a new Google Sheet (e.g. "Ember seating").
-2. **Extensions → Apps Script**. Delete the starter code and paste in `apps-script/Code.gs`. Save.
-3. **Project Settings** (gear icon) → **Script properties → Add script property**:
-   `ADMIN_PASSWORD` = a password of your choice.
-4. **Deploy → New deployment** → type **Web app**:
-   - Execute as: **Me**
-   - Who has access: **Anyone**
-   Click **Deploy**, authorise when asked, and copy the **Web app URL** (ends in `/exec`).
-5. Paste that URL into `config.js` as `API_URL`.
+| Part | Where | Notes |
+| --- | --- | --- |
+| Site | GitHub Pages, repo root | Plain HTML/CSS/JS, no build step. Pushing to `main` redeploys. |
+| API | Cloudflare Worker, `worker/` | `https://ember-seating.ember-seating-worker.workers.dev` |
+| Data | Cloudflare D1 database `ember-seating` | Tables `picks` and `attendance` (`worker/schema.sql`) |
 
-The `Picks` and `Attendance` tabs are created automatically on first use.
-If you change `Code.gs` later, use **Deploy → Manage deployments → Edit → New version** so the URL stays the same.
+The Worker only accepts requests from the GitHub Pages site (and localhost), and only returns picks with the admin password.
 
-## 2. Customise
+## Common tasks
 
-Edit `config.js`:
-- `STAFF`: names in the dropdown.
-- `MAX_PICKS`, `ATTENDANCE_LABEL`, `OFFICE_NAME`.
+Run these in **Git Bash** from the `worker/` folder. (This PC blocks the Command Prompt, which npm relies on, so PowerShell won't work for `npx` here. `worker/.npmrc` points npm at Git Bash.)
 
+```bash
+npx wrangler secret put ADMIN_PASSWORD   # set or change the admin password
+npx wrangler deploy                      # deploy changes to worker/src/index.js
+npx wrangler d1 execute ember-seating --remote --command "SELECT * FROM picks"   # peek at the data
+```
+
+First-time setup on a new machine: `npm install` in `worker/`, then `npx wrangler login`.
+
+## Customise
+
+`config.js`: staff names, `MAX_PICKS`, `ATTENDANCE_LABEL`, `OFFICE_NAME`.
 Desk features (standing, snacks, window, door) are set at the top of `office.js`.
-
-## 3. Publish on GitHub Pages
-
-1. Create a GitHub repo and upload everything in this folder (`index.html`, `admin/`, `config.js`, `office.js`, `api.js`, `styles.css`; `apps-script/` is optional).
-2. Repo **Settings → Pages → Build and deployment**: Source **Deploy from a branch**, branch `main`, folder `/ (root)`.
-3. After a minute your site is at `https://<user>.github.io/<repo>/`. Admin is at `…/<repo>/admin/`.
 
 ## How the allocation works
 
@@ -44,7 +42,5 @@ Desk features (standing, snacks, window, door) are set at the top of `office.js`
 
 ## Good to know
 
-- No logins for staff: anyone can submit under any name, and resubmitting replaces the earlier picks. You're trusting the team here.
-- Picks are only returned when the admin password is correct, so staff really can't see each other's choices.
+- No logins for staff: anyone can submit under any name, and resubmitting replaces the earlier picks.
 - `/admin/` isn't linked from the main page, but the URL isn't secret. The password is what protects it.
-- To remove someone's submission, delete their row in the `Picks` sheet.

@@ -1,12 +1,11 @@
-// Talks to the Google Apps Script backend, or a local demo store when no API_URL is set.
+// Talks to the seating API (a Cloudflare Worker), or a local demo store when no API_URL is set.
 window.SeatingAPI = (function () {
   const cfg = window.SEATING_CONFIG;
   // Add ?demo to the URL to try the app without touching the real data.
   const demo = !cfg.API_URL || new URLSearchParams(location.search).has("demo");
 
-  // Apps Script web apps intermittently answer with a Google "unable to open the file" 404
-  // (or a 5xx) instead of the script's JSON. Every action here overwrites rather than appends,
-  // so it's safe to simply try again.
+  // Retry transient failures (network blips, timeouts, 5xx). Every action overwrites
+  // rather than appends, so trying again is always safe.
   const ATTEMPTS = 4;
   const TIMEOUT_MS = 45000;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,9 +40,8 @@ window.SeatingAPI = (function () {
         await sleep(800 * 2 ** (i - 1));
       }
       const out = await attempt(body);
-      // Ignore anything that isn't a reply to this action (e.g. Google's redirect
-      // occasionally serves doGet's output). Older scripts don't echo the action.
-      if (!out || (out.action ? out.action !== action : "message" in out)) continue;
+      // The API echoes the action; anything else isn't a real reply.
+      if (!out || out.action !== action) continue;
       if (!out.ok) throw new Error(out.error || "Something went wrong.");
       return out;
     }

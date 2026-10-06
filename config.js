@@ -2,9 +2,9 @@
 // Seating config. This is the only file you normally need to edit.
 // ---------------------------------------------------------------
 window.SEATING_CONFIG = {
-  // Paste your Google Apps Script web app URL here (see README.md).
+  // The seating API (Cloudflare Worker in worker/, see README.md).
   // Leave empty for demo mode (data stays in your browser).
-  API_URL: "https://script.google.com/macros/s/AKfycbzEwKL_06DJ42aJzqYXaJZtIOTnEkdF4iIeAquptaVMdjj31FpoFFml0QKeAgnwzgkc/exec",
+  API_URL: "https://ember-seating.ember-seating-worker.workers.dev",
 
   OFFICE_NAME: "Melbourne",
 

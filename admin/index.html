@@ -78,7 +78,7 @@
         </div>
 
         <div class="section">
-          <div class="section-head"><h2>Submissions</h2></div>
+          <div class="section-head"><h2>Submissions</h2><button class="btn btn-secondary btn-sm" id="csvBtn">Download CSV</button></div>
           <div class="panel table-wrap"><table id="subs"></table></div>
         </div>
 
@@ -191,7 +191,7 @@
     // ---------- auth ----------
     async function login(pw) {
       const out = await api.call("admin", { password: pw }, () => {
-        $("loginStatus").textContent = "Google's server is being slow. Still loading..."; $("loginStatus").className = "status info";
+        $("loginStatus").textContent = "The server is slow to respond. Still loading..."; $("loginStatus").className = "status info";
       });
       password = pw;
       try { sessionStorage.setItem(PW_KEY, pw); } catch {}
@@ -211,6 +211,17 @@
     $("logoutBtn").onclick = () => { try { sessionStorage.removeItem(PW_KEY); } catch {} location.reload(); };
     $("refreshBtn").onclick = () => login(password).catch((e) => alert(e.message));
     $("seedBtn").onclick = async () => { await api.call("demoSeed"); results = null; if (password) login(password); else $("pw").value = "admin"; };
+    $("csvBtn").onclick = () => {
+      const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const rows = [["Name", ...Array.from({ length: MAX }, (_, i) => `Pick ${i + 1}`), cfg.ATTENDANCE_LABEL, "Updated"]];
+      [...data.picks].sort((a, b) => a.name.localeCompare(b.name)).forEach((p) =>
+        rows.push([p.name, ...Array.from({ length: MAX }, (_, i) => p.picks[i] || ""), data.attendance[p.name] ?? "", p.updatedAt]));
+      const blob = new Blob([rows.map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv" });
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "ember-seating.csv" });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+
     $("clearBtn").onclick = async () => {
       const n = data.picks.length;
       if (!confirm(`Delete all ${n} submission${n === 1 ? "" : "s"} and attendance numbers? This can't be undone.`)) return;
@@ -259,7 +270,7 @@
       const m = (k, v, s) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
       $("stats").innerHTML =
         m("Submitted", `${data.picks.length}<small> / ${cfg.STAFF.length}</small>`, `${Math.round((data.picks.length / Math.max(1, cfg.STAFF.length)) * 100)}% of the team`) +
-        m("Most wanted", top && top[1].score ? `<span class="mono">${top[0]}</span>` : "--", top && top[1].score ? `${top[1].people.length} people` : "No picks yet") +
+        m("Most wanted", top && top[1].score ? `<span class="mono">${top[0]}</span>` : "--", top && top[1].score ? `${top[1].people.length} ${top[1].people.length === 1 ? "person" : "people"}` : "No picks yet") +
         m("Top first-choice clash", clash && clash[1] > 1 ? `<span class="mono">${clash[0]}</span>` : "--", clash && clash[1] > 1 ? `${clash[1]} want it first` : "None yet") +
         m("Unpicked desks", unwanted, `of ${O.SEATS.length}`);
     }

@@ -1,0 +1,8 @@
+name = "ember-seating"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ember-seating"
+database_id = "0b0f1d0a-af76-480b-bf87-ca334d8bad64"
